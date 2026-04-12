@@ -46,3 +46,12 @@ self.addEventListener('notificationclick', function(event) {
 
 self.addEventListener('install',  () => self.skipWaiting());
 self.addEventListener('activate', e  => e.waitUntil(self.clients.claim()));
+
+// ── معالج KEEPALIVE من التطبيق ──
+self.addEventListener('message', function(event){
+  if(!event.data) return;
+  if(event.data.type === 'KEEPALIVE'){
+    // ردّ على التطبيق لإبقائه حياً
+    if(event.source) event.source.postMessage({type:'KEEPALIVE_ACK', ts: Date.now()});
+  }
+});
