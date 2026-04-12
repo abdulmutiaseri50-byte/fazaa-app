@@ -1781,7 +1781,7 @@ const SB={
   },
 
   wsDis(){
-    this.wsRoom = null;      // ← أولاً — يمنع onclose من reconnect
+    this.wsRoom = null;      // ← أولاً: يمنع onclose من إعادة الاتصال
     this.wsCb = null;
     this.wsOnReady = null;
     clearInterval(this.wsHB);
@@ -4369,14 +4369,15 @@ function pocForcePlay(sid){
   if(!sess) return;
   delete _pocRx[sid];
 
-  // ⛔ لا تشغّل إذا غادر المستخدم القناة
-  if(!curCh || window._chLeaving) return;
-
   const sortedKeys = Object.keys(sess.chunks)
     .map(Number).sort((a,b) => a-b);
+
   if(sortedKeys.length === 0) return;
 
+  // ✅ الدمج الصحيح: فك كل chunk لـ binary → دمج bytes → base64 واحد صحيح
+  // .join('') خاطئ لأن كل chunk يحتوي على header مستقل
   try{
+    // احسب الحجم الكلي
     const arrays = sortedKeys.map(k => {
       const b64 = sess.chunks[k];
       const bin = atob(b64);
@@ -4386,25 +4387,30 @@ function pocForcePlay(sid){
     });
 
     const totalLen = arrays.reduce((s,a) => s+a.length, 0);
-    if(totalLen < 1000){ console.log('🗑️ Audio too small:', totalLen); return; }
 
-    const merged = new Uint8Array(totalLen);
+    // رفض الصوت إذا كان صغيراً جداً (أقل من 1000 bytes = بيانات تالفة)
+    if(totalLen < 1000){
+      console.log('🗑️ Audio too small, discarded:', totalLen, 'bytes');
+      return;
+    }
+
+    const merged   = new Uint8Array(totalLen);
     let offset = 0;
     for(const arr of arrays){ merged.set(arr, offset); offset += arr.length; }
 
-    // تحقق من magic bytes — webm: 0x1A45DFA3، mp4: ftyp
-    const isWebm = merged[0]===0x1A && merged[1]===0x45 && merged[2]===0xDF && merged[3]===0xA3;
-    const isMP4  = merged[4]===0x66 && merged[5]===0x74 && merged[6]===0x79 && merged[7]===0x70;
-    if(!isWebm && !isMP4){ console.log('🗑️ Invalid audio header'); return; }
-
+    // حوّل الـ merged bytes لـ base64 صحيح
     let binary = '';
     for(let i=0; i<merged.length; i++) binary += String.fromCharCode(merged[i]);
     const combined = btoa(binary);
 
+    // شغّل الصوت مباشرة — بدون فقاعة (لاسلكي حقيقي)
     playPTT(combined, sess.mime, { name: sess.name }).catch(()=>{});
 
-  }catch(err){ console.error('pocForcePlay merge error:', err); }
+  }catch(err){
+    console.error('pocForcePlay merge error:', err);
+  }
 }
+
 // ── تنظيف عام (عند مغادرة القناة) ──
 function rtcDisconnect(){
   _ptt.tx = false;
